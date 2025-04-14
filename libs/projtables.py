@@ -1,6 +1,4 @@
-#Version 11/16/24
-#Modified ImportExcelDf 11/16/24
-#Customized 4/3/25
+#Version 4/10/25
 import os, sys
 import pandas as pd
 import numpy as np
@@ -23,15 +21,7 @@ JDL 9/3/24
 class ProjectTables():
     """
     Collection of imported or generated data tables for a project
-
-    Class can toggle between "parse" and "model" mode by setting the IsParse.
-    This changes how data are imported to tables by modifying the Tables' .pf
-    attribute and parsing instructions. 
-    * In parse mode, they are read from multiple, raw files. 
-    * In model mode, previously parsed csv's are imported Use 
-    ProjectTables.ImportCSVInputs() in this case.
-
-    JDL 9/26/24; Customized 4/3/25
+    JDL 9/26/24; Modified 4/9/25
     """
     def __init__(self, files, IsPrint=False):
         """
@@ -41,32 +31,42 @@ class ProjectTables():
         self.files = files
 
         #Instance project-specific tables and ColInfo
-        #self.InstanceTblObjs()
+        self.InstanceTblObjs()
         self.InstanceAndImportColInfo()
         
     def InstanceTblObjs(self):
         """
-        Instance project-specific tables (examples in tests/test_data/ folder)
-
-        JDL 4/3/25
+        Instance project-specific tables 
+        (example data tests/test_data/ folder)
+        JDL 4/9/25
         """
-        #pf = self.files.path_data + 'Example1.xlsx'
-        self.ExampleTbl1 = Table(pf, 'ExampleTbl1', '', '')
 
-        #pf = self.files.path_data + 'Example2.xlsx'
-        self.ExampleTbl2 = Table(pf, 'ExampleTbl2', '', '')
+        # Set import params for Excel files
+        dImportParams = {'import_path':self.files.path_data,
+                        'ftype': 'excel',
+                        'sht':'data'}
+
+        dImportParams['lst_files'] = 'Example1.xlsx'
+        self.ExampleTbl1 = Table('ExampleTbl1', dImportParams)
+
+        dImportParams['lst_files'] = 'Example2.xlsx'
+        self.ExampleTbl2 = Table('ExampleTbl2', dImportParams)
 
         self.lstExcelImports = [self.ExampleTbl1, self.ExampleTbl2]
 
     def InstanceAndImportColInfo(self):
         """
-        Instance and Import ColInfo
-        JDL 4/3/25
+        Instance and Import ColInfo table with metadata about variables
+        JDL 4/9/25
         """
         # Instance the ColInfo table and import to tbls.ColInfo.df
-        dImportParams = {'ftype': 'excel', 'lst_files':'col_info.xlsx', 
-                        'import_path':self.files.path_data, 'sht':'cols'}
+        dImportParams = {'ftype':'excel',
+                        'lst_files':'col_info.xlsx', 
+                        'import_path':self.files.path_data,
+                        'sht':'cols'}
+
         self.ColInfo = Table('ColInfo', dImportParams)
+        self.ColInfo.ImportToTblDf()
         #self.ImportExcelInputs(lstExcelImports=[self.ColInfo])
         #self.ColInfo.ImportToTblDf_New()
 
@@ -123,150 +123,185 @@ class Table():
     def __init__(self, name, dImportParams=None, dParseParams=None,):
                 
         self.name = name #Table name
-        self.dImportParams = dImportParams or {} #Dict of import parameters
-        self.dParseParams = dParseParams or {} #Dict of parsing parameters
-        self.df_raw = pd.DataFrame()
+
+        # Dicts of import and parsing parameters
+        self.dImportParams = dImportParams or {}
+        self.dParseParams = dParseParams or {'parse_type':'none'}
+        #self.df_raw = pd.DataFrame()
         self.df = pd.DataFrame()
         self.col_info = None
 
-        #Import info: Path+File (sPF), Excel sheet name for import
-        #self.pf = pf
-        #self.sht = sht
+        # Temp variables for looping through files
+        self.pf = None
+        self.sht = None
+        self.lst_dfs = None
+        self.sht_type = None
+        self.is_unstructured = None
+        self.lst_dfs = None
 
-        #Table name (string) and name of default index column
-        #self.idx_col_name = idx_col_name
-        #self.import_col_map = {} #Map raw import names to df col names
-        #self.import_dtype = import_dtype #To force str type for imported values
-
-        #Raw (non-parsed) and parsed DataFrames
-
-        #self.required_cols = []
-        #self.numeric_cols = []
-        #self.populated_cols = []
-        #self.nonblank_cols = []
-
-    def ImportToTblDf(self, files=None, lst_files=None):
+    """
+    ================================================================================
+    ImportToTblDf Procedure
+    JDL 4/10/25 Rewritten to allow multisheet Excel and separate ingest/parse
+    ================================================================================
+    """
+    def ImportToTblDf(self, lst_files=None):
         """
-        Generic import to self.df by importing individual file or a list
-        of files to tblimport that conveys import instructions. Temporary
-        df's are concatenated to tbl.df
-        JDL 3/6/25; refactored 4/8/25
-        """
-        # if lst_files specified, that overrides dImportParams['lst_files']
-        if lst_files is None: lst_files = self.dImportParams['lst_files']
+        Procedure to import file(s) + sheet(s) to self.df (structured rows/cols)
+        or self.lst_dfs (unstructured) using .dImportParams and .dParseParams to
+        set options
 
-        # Convert to list if single file
-        if not isinstance(lst_files, list): lst_files = [lst_files]
+        Can directly specify lst_files as arg or as dImportParams['lst_files']
+        Refactored JDL 4/10/25
+        """        
+        lst_files = self.SetLstFiles(lst_files)
+        self.SetFileIngestParams()
 
-        # optionally, prepend import_path to each file name
-        if 'import_path' in self.dImportParams:
-            lst_files = [self.dImportParams['import_path'] + f for f in lst_files]
+        # initialize list df's and temp df (temp if structured; or for parsing later)
+        self.lst_dfs = []
+        self.df_temp = pd.DataFrame()
 
-        # Set flag for rows/cols (structured) vs unstructured data needing parsing
-        is_unstructured = self.IsUnstructured()
+        # Loop over input list of files to ingest
+        for self.pf in lst_files:
 
-        # Set n skiprows (=0 default; irrelevant for unstructured)
-        if not is_unstructured: n_skiprows = self.NSkipRows()
-
-        list_dfs = []
-        for pf in lst_files:
+            # Read from Excel single/multiple sheets self.pf; append to lst_dfs
             if self.dImportParams['ftype'] == 'excel':
-                if is_unstructured:
-                    df = self.ImportExcelRaw()
-                else:
-                    df = pd.read_excel(pf, skiprows=n_skiprows)
+                self.SetLstSheets()
+                self.ReadExcelFileSheets()
 
+            # Read from CSV self.pf; append to lst_dfs
             elif self.dImportParams['ftype'] == 'csv':
+                self.ReadCSVFile()
 
-                # Set n_skiprows based on specified import type
-                #n_skiprows = 0
-                #if 'n_skip_rows' in self.dParseParams:
-                #    n_skiprows = self.dImportParams['n_skiprows']
-                df = pd.read_csv(self.pf, skiprows=n_skiprows)
-
+            # Read from feather self.pf; append to lst_dfs
             elif self.dImportParams['ftype'] == 'feather':
                 pass
 
+        #Concat if rows/cols aka structured (e.g. no parsing needed)
+        if not self.is_unstructured:
+            self.df = pd.concat(self.lst_dfs, ignore_index=True)
+            self.lst_dfs = []
 
-            #elif self.dImportParams['type'] == 'interleaved_col_blocks':
-
-            #    # Import raw data from tbl.pf and parse to .df
-            #    self.ImportExcelRaw()
-            #    parse = InterleavedColBlocksTbl(self)
-            #    parse.ParseInterleavedBlocksProcedure()
-
-                # Set temporary df to add to list_dfs below
-            #    df = parse.df
-
-
-            # Append the imported df to list and reset to clear from memory
-            list_dfs.append(df)
-            df = pd.DataFrame()
-
-        #Concatenate imported df's
-        self.df_raw = pd.concat(list_dfs, ignore_index=True)
-
-    def NSkipRows(self):
+    def SetLstFiles(self, lst_files):
         """
-        Set n_skiprows based on specified import type
-        JDL 4/8/25
+        Set lst_files based on input and dImportParams.
         """
-        n = 0
-        if 'n_skiprows' in self.dParseParams: n = self.dParseParams['n_skiprows']
-        return n
+        # If lst_files is not specified, use dImportParams['lst_files']
+        if lst_files is None: lst_files = self.dImportParams['lst_files']
 
-    def IsUnstructured(self):
-        """
-        Set is_unstructured flag based on parsing instructions
-        JDL 4/8/25
-        """
-        is_unstructured = False
-        if 'is_unstructured' in self.dParseParams:
-            is_unstructured = self.dParseParams['is_unstructured']
-        return is_unstructured
-
-
-    def ImportToTblDf_prev(self, files, lst_files):
-        """
-        Generic import to self.df by importing individual file or a list
-        of files to tblimport that conveys import instructions. Temporary
-        df's are concatenated to tbl.df
-        JDL 3/6/25; refactored 3/17/25
-        """
-        # Convert to list if single file
+        # Convert to list if a single file is provided
         if not isinstance(lst_files, list): lst_files = [lst_files]
 
-        list_dfs = []
-        for self.pf in lst_files:
-            if self.dImportParams['type'] in ['csv', 'csv_skiprows']:
+        # Optionally prepend import_path to each file name
+        if 'import_path' in self.dImportParams:
+            lst_files = [self.dImportParams['import_path'] + f for f in lst_files]
+        return lst_files
 
-                # Set n_skiprows based on specified import type
-                n_skiprows = 0
-                if self.dImportParams['type'] == 'csv_skiprows':
-                    n_skiprows = self.dImportParams['n_skiprows']
-                df = pd.read_csv(self.pf, skiprows=n_skiprows)
+    def SetFileIngestParams(self):
+        """
+        Set Table attributes for the current file
+        JDL 4/10/25
+        """
+        self.is_unstructured = self.SetParseParam(False, 'is_unstructured')
+        self.n_skip_rows = self.SetParseParam(0, 'n_skip_rows')
+        self.parse_type = self.SetParseParam('none', 'parse_type')
+        if self.dImportParams['ftype'] == 'excel':
+            self.sht_type = self.SetImportParam('single', 'sht_type')
 
-            elif self.dImportParams['type'] == 'interleaved_col_blocks':
+    def SetImportParam(self, valDefault, param_name):
+        """
+        Set default or non-default import parameter
+        JDL 4/9/25
+        """
+        val = valDefault
+        if param_name in self.dImportParams: val = self.dImportParams[param_name]
+        return val
 
-                # Import raw data from tbl.pf and parse to .df
-                self.ImportExcelRaw()
-                parse = InterleavedColBlocksTbl(self)
-                parse.ParseInterleavedBlocksProcedure()
+    def SetParseParam(self, valDefault, param_name):
+        """
+        Set default or non-default parsing parameter
+        JDL 4/9/25
+        """
+        val = valDefault
+        if param_name in self.dParseParams: val = self.dParseParams[param_name]
+        return val
 
-                # Set temporary df to add to list_dfs below
-                df = parse.df
+    def SetLstSheets(self):
+        """
+        Set .lst_sheets based on sht_type and sht in dImportParams
+        (Called within iteration with self.pf file)
+        JDL 4/10/25
+        """
+        self.lst_sheets = []
 
-            else:
-                pass # Excel import not yet implemented
+        if self.sht_type == 'single':
 
-            # Append the imported df to list and reset to clear from memory
-            list_dfs.append(df)
-            df = pd.DataFrame()
+            # Set sheet name to either specified or 0 (e.g. first sheet)
+            self.lst_sheets = [self.dImportParams.get('sht', 0)]
 
-        #Concatenate imported df's
-        self.df = pd.concat(list_dfs, ignore_index=True)
+            # If sheet name is 0, reset it to first sheet name
+            if self.lst_sheets[0] == 0:
+                wb = load_workbook(filename=self.pf, read_only=True)
+                self.lst_sheets[0] = wb.sheetnames[0]
+                wb.close()
 
-    def ImportExcelDf(self):
+        elif self.sht_type == 'all':
+            wb = load_workbook(filename=self.pf, read_only=True)
+            self.lst_sheets = wb.sheetnames
+            wb.close()
+        
+        elif self.sht_type == 'list':
+            pass
+
+        elif self.sht_type == 'regex':
+            pass
+
+        elif self.sht_type == 'startswith':
+            pass
+
+        elif self.sht_type == 'endswith':
+            pass
+
+        elif self.sht_type == 'contains':
+            pass
+
+    def ReadExcelFileSheets(self):
+        """
+        Loop through sheets in lst_sheets and read their data
+        JDL 4/10/25
+        """
+        for self.sht in self.lst_sheets:
+            self.ReadExcelSht()
+            self.lst_dfs.append(self.df_temp)
+            self.df_temp = pd.DataFrame()
+
+    def ReadExcelSht(self):
+        """
+        Read data from the current sheet into a temporary DataFrame.
+        """
+        if self.is_unstructured:
+            #self.df_temp = self.ImportExcelRaw()
+            self.df_temp = pd.read_excel(self.pf, sheet_name=self.sht, header=None)
+        else:
+            self.df_temp = pd.read_excel(self.pf, sheet_name=self.sht, skiprows=self.n_skip_rows)
+
+    def ReadCSVFile(self):
+        """
+        Import current CSV file into a temporary df and append to lst_dfs
+        JDL 4/10/25
+        """
+        if self.is_unstructured:
+            # Read CSV without treating first row as headers
+            self.df_temp = pd.read_csv(self.pf, header=None)
+        else:
+            # Read CSV with optional skiprows
+            self.df_temp = pd.read_csv(self.pf, skiprows=self.n_skip_rows)
+
+        # Append temp df to lst_dfs and re-initialize
+        self.lst_dfs.append(self.df_temp)
+        self.df_temp = pd.DataFrame()
+
+    def ImportExcelDf_obsolete(self):
         """
         Import rows/cols homed table data from Excel to .df
         JDL 9/3/24; 11/16/24 to deal with non-specified .sht (import 1st sht)
@@ -286,31 +321,26 @@ class Table():
             except KeyError:
                 raise ValueError(f"Column {col_last} not found in", self.name)
 
-    def ImportCSV(self, n_skiprows=0):
-        """
-        Import CSV data to .df with optional skiprows typically from dParseParams
-        JDL 3/6/25
-        """
-        self.df = pd.read_csv(self.pf, skiprows=n_skiprows)
-
-    def ImportExcelRaw(self):
+    def ImportExcelRaw_obsolete(self):
         """
         Import unstructured data to .df_raw for parsing
         JDL Modified 9/26/24 to allow forcing str type for imported values
         """
         #Create workbook object and select sheet
         wb = load_workbook(filename=self.pf, read_only=True)
-        ws = wb[self.sht]
+        sht = self.sht if self.sht != 0 else wb.sheetnames[0]
+        ws = wb[sht]
 
         # Convert the data to a list and convert to a DataFrame
         data = ws.values
-        self.df_raw = pd.DataFrame(data)
+        df = pd.DataFrame(data)
 
         #Negate Pandas inferring float data type for integers and NaNs for blanks
         if 'import_dtype' in self.dParseParams and self.dParseParams['import_dtype'] == str:
-            self.df_raw = self.df_raw.applymap(lambda x: None if pd.isna(x) \
+            df = df.applymap(lambda x: None if pd.isna(x) \
                     else str(int(x)) if isinstance(x, float) and x.is_integer() \
                     else str(x))
+        return df
 
     def ResetDefaultIndex(self, IsDrop=True):
         """

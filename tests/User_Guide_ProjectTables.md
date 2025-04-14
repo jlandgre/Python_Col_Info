@@ -44,8 +44,10 @@ Table (ImportProcedure) has:
 
     dImportParams
         import_path (can be blank if lst_files items are path+filename)
-        lst_files (either hard-coded in calling fn or sweep folder approach) has
+        lst_files (either hard-coded in calling fn or sweep folder approach)
         ftype (either csv, excel or feather)
+        sht_type (either single, all, list, startswith or regex) specifies which sheets for ftype=excel
+        shts 0 (default), single sheet name or list
         file_validations: file_exists, sht_exists etc.
 
     dParseParams (parse_type-specific instructions) has

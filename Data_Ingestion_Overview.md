@@ -5,7 +5,20 @@
 ### Overview
 The `ImportToTblDf` method is used to import data from various file types (e.g., Excel, CSV, Feather) into a `Table` instance. It supports structured and unstructured data imports, with options to customize the behavior using parameters in `dImportParams` and `dParseParams`.
 
+The code is within projtables.py that contains two foundational classes that are part of a modeling toolbox:
+* `ProjectTables` (instanced as `tbls`) is a collection of all data tables and their metadata associated with a project. Its attributes are `Table` objects typically instanced in `ProjectTables.InstanceTblObjs` as in this example for a hypothetical table to be imported from the sheet, `data` in a hypothetical Excel file, `Example1.xlsx`.
+```
+        dImportParams = {'import_path':self.files.path_data,
+                        'ftype':'excel',
+                        'sht':'data'}
+        dImportParams['lst_files'] = 'Example1.xlsx'
+        self.ExampleTbl1 = Table('ExampleTbl1', dImportParams=dImportParams,
+                                                dParseParams=None)
+```
+* The `Table` class objects that are `tbls` attributes contain all metadata for a project table including its `.df` data and its `.name`. The latter is input as an argument in the example above. Other attributes are `.dImportParams` and `.dParseParams` that describe how to import and parse data into `.df` for use in modeling and analysis. Data ingestion directly imports to `.df` for "structured" rows/columns raw data. If the data are unstructured but in a repeatable format, `ImportToTblDf` populates `Table.lst_dfs` with individual raw (unparsed) imported tables --enabling subesquent parsing and concatenation into `Table.df`.
+
 ---
+The following sections describe use of `Table.ImportToTblDf` options for ingesting and parsing data
 
 ### 1. `dImportParams`
 This dictionary specifies import-related parameters.
@@ -125,3 +138,6 @@ To be implemented as of 4/13/25
 ---
 
 This guide provides a comprehensive overview of the `ImportToTblDf` method, its parameters, and its behavior for different file types.
+
+J.D. Landgrebe, Data Delve LLC
+April 12, 2025

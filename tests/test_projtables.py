@@ -102,6 +102,20 @@ def test_ImportToTblDf4(tbls_ExcelFile):
     # Import should result in .df with 6 rows (no parsing needed)
     check_ExcelFile(tbls_ExcelFile)
 
+def test_ImportToTblDf5(tbls_ExcelFile):
+    """
+    .df from Excel structured tables on one, specified sheet
+    JDL 4/10/25
+    """
+    # Fixture sets ftype and import_path; default is structured
+    f_lst = ['Example2a.xlsx', 'Example2b.xlsx']
+    tbls_ExcelFile.dImportParams.update({'lst_files':'Example2.xlsx',
+        'sht_type':'single', 'sht':'data'})
+    tbls_ExcelFile.ImportToTblDf()
+
+    # Import should result in .df with 6 rows (no parsing needed)
+    check_ExcelFile(tbls_ExcelFile)
+
 def check_ExcelFile(tbls_ExcelFile):
     """
     Helper function to check ExcelFile import

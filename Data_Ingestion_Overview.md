@@ -38,8 +38,8 @@ This dictionary specifies parsing-related parameters.
 
 | **Key**           | **Description**                                                                 | **Required/Optional** | **Default Value** |
 |-------------------|---------------------------------------------------------------------------------|------------------------|-------------------|
-| `is_unstructured` | Indicates whether the data is unstructured.                                     | Optional               | `False`           |
-| `n_skip_rows`     | Number of rows to skip at the top of the file (for structured data).             | Optional               | `0`               |
+| `is_unstructured` | Indicates whether the data is unstructured. If so, Table.lst_dfs is output; otherwise Table.df                                     | Optional               | `False`           |
+| `n_skip_rows`     | Number of rows to skip at the top of the file (for structured data only).             | Optional               | `0`               |
 | `parse_type`      | Parsing type for unstructured data. Supported values: `'none'`, `'row_major'`, `'col_major'`. | Optional | `'none'` |
 
 ---
@@ -49,6 +49,8 @@ This dictionary specifies parsing-related parameters.
 #### 3.1 `ftype = 'excel'`
 - **Description**: Imports data from Excel files.
 - **Additional Parameters**:
+  - `is_unstructured`: If `True`, the first row is not treated as headers (`header=None`), and imported (non-parsed) .df's are output in Table.lst_dfs for subsequent parsing.
+  - `n_skip_rows`: Number of rows to skip at the top of the file (is_unstructured=True only).
   - `sht`: Specifies the sheet to import. Can be a name or index.
   - `sht_type`: Determines how sheets are handled:
     - `'single'`: Imports a single sheet specified by `sht`.
@@ -62,13 +64,13 @@ This dictionary specifies parsing-related parameters.
 #### 3.2 `ftype = 'csv'`
 - **Description**: Imports data from CSV files.
 - **Additional Parameters**:
-  - `is_unstructured`: If `True`, the first row is not treated as headers (`header=None`).
-  - `n_skip_rows`: Number of rows to skip at the top of the file.
+  - `is_unstructured`: If `True`, the first row is not treated as headers (`header=None`), and imported (non-parsed) .df's are output in Table.lst_dfs for subsequent parsing.
+  - `n_skip_rows`: Number of rows to skip at the top of the file (is_unstructured=True only).
 
 #### 3.3 `ftype = 'feather'` (not implemented as of 4/13/25)
 - **Description**: Imports data from Feather files.
 - **Additional Parameters**:
-  - None (Feather files are always structured).
+  - None
 
 ---
 
@@ -76,11 +78,10 @@ This dictionary specifies parsing-related parameters.
 
 #### 4.1 Importing a Single Excel Sheet
 ```python
-dImportParams = {
-    'ftype': 'excel',
-    'lst_files': 'Example1.xlsx',
-    'sht': 'data',
-    'sht_type': 'single'}
+dImportParams = {'ftype':'excel',
+    'lst_files':'Example2.xlsx',
+    'sht':'data',
+    'sht_type':'single'}
 tbl = Table('ExampleTable', dImportParams)
 tbl.ImportToTblDf()
 ```
@@ -97,13 +98,8 @@ tbl.ImportToTblDf()
 
 #### 4.3 Importing a CSV File with Skipped Rows
 ```python
-dImportParams = {
-    'ftype': 'csv',
-    'lst_files': 'Example3.csv'
-}
-dParseParams = {
-    'n_skip_rows': 2
-}
+dImportParams = {'ftype':'csv', 'lst_files':'Example3.csv'}
+dParseParams = {'n_skip_rows': 2}
 tbl = Table('ExampleTable', dImportParams, dParseParams)
 tbl.ImportToTblDf()
 ```
@@ -122,7 +118,7 @@ tbl.ImportToTblDf()
 ---
 
 #### 5. Default Behavior
-- If `lst_files` is not specified, the method uses `dImportParams['lst_files']`.
+- If `lst_files` is not specified as override argument, the method uses `dImportParams['lst_files']`.
 - If `sht` is not specified for Excel files, the first sheet (`0`) is used.
 - If `is_unstructured` is not specified, the data is treated as structured.
 

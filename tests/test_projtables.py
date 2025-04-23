@@ -24,11 +24,13 @@ def tbls(files):
 
 @pytest.fixture
 def tbls_ExcelFile(files):
+    """ Like tbls.ExcelFile"""
     d = {'ftype':'excel', 'import_path':files.path_data}
     return Table('ExcelFile', dImportParams=d)
 
 @pytest.fixture
 def tbls_CSVFile(files):
+    """ Like tbls.CSVFile"""
     d = {'ftype':'csv', 'import_path':files.path_data}
     return Table('CSVFile', dImportParams=d)
 
@@ -105,10 +107,9 @@ def test_ImportToTblDf4(tbls_ExcelFile):
 def test_ImportToTblDf5(tbls_ExcelFile):
     """
     .df from Excel structured tables on one, specified sheet
-    JDL 4/10/25
+    JDL 4/14/25
     """
     # Fixture sets ftype and import_path; default is structured
-    f_lst = ['Example2a.xlsx', 'Example2b.xlsx']
     tbls_ExcelFile.dImportParams.update({'lst_files':'Example2.xlsx',
         'sht_type':'single', 'sht':'data'})
     tbls_ExcelFile.ImportToTblDf()

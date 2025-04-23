@@ -1,4 +1,4 @@
-#Version 4/11/25
+#Version 4/21/25
 import os, sys
 import pandas as pd
 import numpy as np
@@ -127,7 +127,7 @@ class Table():
         # Dicts of import and parsing parameters
         self.dImportParams = dImportParams or {}
         self.dParseParams = dParseParams or {'parse_type':'none'}
-        #self.df_raw = pd.DataFrame()
+        self.df_raw = pd.DataFrame() # temp raw data in .lst_dfs iteration
         self.df = pd.DataFrame()
         self.col_info = None
 
@@ -141,6 +141,31 @@ class Table():
 
     """
     ================================================================================
+    ParseRawData Procedure
+    If imported data are not rows/cols structured, parse .lst_dfs to .df using
+    dParseParams inputs to guide parsing
+    JDL 4/21/25
+    ================================================================================
+    """
+    def ParseRawData(tbl):
+        """
+        Procedure to parse raw data for a given Table instance.
+        """
+        for df in tbl.lst_dfs:
+            if tbl.dParseParams['parse_type'] == 'row_major':
+                parse = RowMajorTbl(tbl, df)
+                parse.ReadBlocksProcedure()
+    """
+    ================================================================================
+    ApplyColInfo Procedure
+    Apply col_info to tbl.df to rename and subset raw columns and set default index
+    and data types
+    JDL 4/21/25
+    ================================================================================
+    """
+    # Parse df_raw to df using dParseParams
+    """
+    ================================================================================
     ImportToTblDf Procedure
     JDL 4/10/25 Rewritten to allow multisheet Excel and separate ingest/parse
     ================================================================================
@@ -152,9 +177,12 @@ class Table():
         set options
 
         Can directly specify lst_files as arg or as dImportParams['lst_files']
-        Refactored JDL 4/10/25
-        """        
+        Refactored JDL 4/10/25; Comments updated 4/21/25 to clarify
+        """
+        # Set lst_files based on dImportParams['lst_files'] or input arg    
         lst_files = self.SetLstFiles(lst_files)
+
+        # Set file ingest parameters based on dImportParams or on default values
         self.SetFileIngestParams()
 
         # initialize list df's and temp df (temp if structured; or for parsing later)
@@ -199,7 +227,9 @@ class Table():
 
     def SetFileIngestParams(self):
         """
-        Set Table attributes for the current file
+        Set Table attributes for the current file 
+        (concise vs referencing dict items and also factors in default vals if
+        dict item not specified)
         JDL 4/10/25
         """
         self.is_unstructured = self.SetParseParam(False, 'is_unstructured')
@@ -282,6 +312,12 @@ class Table():
         if self.is_unstructured:
             #self.df_temp = self.ImportExcelRaw()
             self.df_temp = pd.read_excel(self.pf, sheet_name=self.sht, header=None)
+
+            # Negate Pandas inferring float data type for integers and NaNs for blanks
+            if 'import_dtype' in self.dParseParams and self.dParseParams['import_dtype'] == str:
+                self.df_temp = self.df_temp.astype(object)
+                self.df_temp = self.df_temp.map(lambda x: None if pd.isna(x) \
+                    else str(int(x)) if isinstance(x, float) and x.is_integer() else str(x))
         else:
             self.df_temp = pd.read_excel(self.pf, sheet_name=self.sht, skiprows=self.n_skip_rows)
 
@@ -490,13 +526,19 @@ class RowMajorTbl():
     (imported with tbls.ImportInputs() or .ImportRawInputs() methods
     JDL 3/4/24; Modified 9/26/24
     """
-    def __init__(self, tbl):
+    def __init__(self, tbl, df=None):
+        
+        # If df (raw data) is specified from tbl.lst_dfs iteration, use it
+        if df is not None:
+            self.df_raw = df
+        else:
+            self.df_raw = tbl.df_raw
 
         #List of df indices for rows where flag_start_bound is found
         self.start_bound_indices = []
 
         #Raw DataFrame and column list parsed from raw data
-        self.df_raw = tbl.df_raw
+        #self.df_raw = tbl.df_raw
 
         #Table whose df is to be populated by parsing
         self.tbl = tbl
@@ -530,15 +572,15 @@ class RowMajorTbl():
             self.idx_start_current = i
             self.ParseBlockProcedure()
 
-        #Extract block_id values if specified
-        self.tbl.df, self.lst_block_ids = RowMajorBlockID(self.tbl, \
-                                        self.idx_start_data).ExtractBlockIDs
+        #Extract block_id values if specified (Note: self arg is RowMajorTbl instance)
+        self.tbl.df, self.lst_block_ids = RowMajorBlockID(self).ExtractBlockIDs
 
         #set default index
-        self.SetDefaultIndex()
+        #self.SetDefaultIndex()
+        self.tbl.df = self.tbl.df.reset_index(drop=True)
 
         #Optionally stack parsed data (if .dParams['is_stack_parsed_cols']
-        self.StackParsedCols()
+        #self.StackParsedCols()
 
     def AddTrailingBlankRow(self):
         """
@@ -570,12 +612,21 @@ class RowMajorTbl():
     def StackParsedCols(self):
         """
         Optionally stack parsed columns from row major blocks
-        JDL 9/25/24
+        JDL 9/25/24; Modified 4/23 remove from procedure/move to Apply ColInfo
         """
         is_stack = self.tbl.dParseParams.get('is_stack_parsed_cols', False)
 
+        #xxx
+        self.tbl.df = self.tbl.df.set_index('Answer Choices')
+        self.tbl.idx_col_name = 'Answer Choices'
+        print('\n', self.tbl.df)
+
         if is_stack:
+            #xxx
             self.tbl.df = self.tbl.df.stack().reset_index()
+            self.tbl.df = self.tbl.df.stack()
+
+            print('\n', self.tbl.df)
 
             #Respecify the index column name and set default index
             self.tbl.df.columns = [self.tbl.idx_col_name, 'Metric', 'Value']
@@ -584,13 +635,14 @@ class RowMajorTbl():
     def ParseBlockProcedure(self):
         """
         Parse the table and set self.df resulting DataFrame
-        JDL 9/25/24
+        JDL 9/25/24; Modified 4/22/25
         """
         self.FindFlagEndBound()
         self.ReadHeader()
         self.SubsetDataRows()
-        self.SubsetCols()
-        self.RenameCols()
+        #self.SubsetCols()
+        #self.RenameCols()
+        #self.SetColumnOrder()
 
         #Concatenate into tbl.df and re-initialize df_block
         self.tbl.df = pd.concat([self.tbl.df, self.df_block], axis=0)
@@ -628,8 +680,8 @@ class RowMajorTbl():
 
     def SubsetDataRows(self):
         """
-        Subset rows based on flags and idata_rowoffset_from_flag.
-        JDL 3/4/24; Modified 9/26/24
+        Subset raw data rows based on flags and idata_rowoffset_from_flag
+        JDL 3/4/24; Modified 4/23/25
         """
         # Calculate the start index for the data
         self.idx_start_data = self.idx_start_current + \
@@ -637,6 +689,13 @@ class RowMajorTbl():
 
         # Create df with block's data rows
         self.df_block = self.df_raw.iloc[self.idx_start_data:self.idx_end_bound]
+
+        # Added 4/23 to replace doing this in SubsetCols()
+        self.df_block.columns = self.cols_df_block
+
+        # Added 4/23 drop columns with null column name and all null values
+        fil = ~self.df_block.columns.isnull() & self.df_block.notna().any()
+        self.df_block = self.df_block.loc[:, fil]
 
     def SubsetCols(self):
         """
@@ -662,15 +721,29 @@ class RowMajorTbl():
         if len(self.tbl.import_col_map) > 0:
             self.df_block.rename(columns=self.tbl.import_col_map, inplace=True)
 
+    def SetColumnOrder(self):
+        """
+        Set column order based on tbl.col_order Series
+        JDL 4/22/25
+        """
+        if self.tbl.col_order is not None:
+            self.df_block = self.df_block[self.tbl.col_order]
+
+
 """
 ================================================================================
 RowMajorBlockID Class - sub to RowMajorTbl for extracting block_id values
 ================================================================================
 """
 class RowMajorBlockID:
-    def __init__(self, tbl, idx_start_data):
-        self.tbl = tbl
-        self.idx_start_data = idx_start_data
+    def __init__(self, parse_instance):
+        self.tbl = parse_instance.tbl
+
+        #Index of first data row in .df_raw
+        self.idx_start_data = parse_instance.idx_start_data
+
+        #Raw df that is being parsed (.df_raw set in parse_instance.__init__())
+        self.df_raw = parse_instance.df_raw
 
         #Within loop value for a block ID
         self.block_id_value = None
@@ -704,7 +777,7 @@ class RowMajorBlockID:
         #Iterate through block_id tuples and add columns to tbl.df
         for tup_block_id in self.tbl.dParseParams.get('block_id_vars', []):
             self.SetBlockIDValue(tup_block_id)
-            self.ReorderColumns()
+            #self.ReorderColumns() #Don't do as part of parsing -- ApplyColInfo takes care of
 
     def ConvertTupleToList(self):
         """
@@ -722,13 +795,13 @@ class RowMajorBlockID:
     def SetBlockIDValue(self, tup_block_id):
         """
         Set internal values based current block_id tuple
-        JDL 9/27/24
+        JDL 9/27/24; Modified 4/22/25 for RowMajorTbl refactor
         """
         name, row_offset = tup_block_id[0], tup_block_id[1]
         idx_row, idx_col = self.idx_start_data + row_offset, tup_block_id[2]
 
         #Set the current value and add the name list
-        value_block_id = self.tbl.df_raw.iloc[idx_row, idx_col]
+        value_block_id = self.df_raw.iloc[idx_row, idx_col]
         self.block_id_names.append(name)
         self.tbl.df[name] = value_block_id
 
